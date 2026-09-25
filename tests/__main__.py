@@ -15,6 +15,7 @@ from .test_lexer import TestLexer
 from .test_python_grammar import TestPythonParser
 from .test_scan import TestScan
 from .test_tree_templates import *  # We define __all__ to list which TestSuites to run
+from .test_error_recovery import TestErrorRecovery
 
 try:
     from .test_nearley.test_nearley import TestNearley

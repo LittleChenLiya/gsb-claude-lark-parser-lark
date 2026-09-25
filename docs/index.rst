@@ -23,9 +23,16 @@ Welcome to Lark's documentation!
    json_tutorial
    how_to_use
    how_to_develop
-   pyparsing_porting
-   recipes
-   examples/index
+  pyparsing_porting
+  recipes
+  examples/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Error Handling
+   :hidden:
+
+   error_recovery
 
 
 .. toctree::

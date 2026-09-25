@@ -8,6 +8,14 @@ from .exceptions import (
     UnexpectedInput,
     UnexpectedToken,
 )
+from .error_recovery import (
+    Repair,
+    RepairAction,
+    RepairKind,
+    RepairSearchResult,
+    RepairSuggester,
+    SearchStatus,
+)
 from .lark import Lark
 from .lexer import Token
 from .parser_frontends import ScanMatch
@@ -26,6 +34,12 @@ __all__ = (
     "UnexpectedEOF",
     "UnexpectedInput",
     "UnexpectedToken",
+    "Repair",
+    "RepairAction",
+    "RepairKind",
+    "RepairSearchResult",
+    "RepairSuggester",
+    "SearchStatus",
     "Lark",
     "Token",
     "ScanMatch",
