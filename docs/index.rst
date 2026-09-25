@@ -25,6 +25,7 @@ Welcome to Lark's documentation!
    how_to_develop
    pyparsing_porting
    recipes
+   error_recovery
    examples/index
 
 
