@@ -35,6 +35,7 @@ Welcome to Lark's documentation!
 
    grammar
    tree_construction
+   coverage
    classes
    visitors
    forest

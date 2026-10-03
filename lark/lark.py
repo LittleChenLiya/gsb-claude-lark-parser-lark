@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from .exceptions import ConfigurationError, assert_config, UnexpectedInput
 from .utils import Serialize, SerializeMemoizer, FS, logger, TextOrSlice, LarkInput
 from .load_grammar import load_grammar, FromPackageLoader, Grammar, verify_used_files, PackageResource, sha256_digest
+from .coverage import CoverageReport
 
 from .tree import Tree
 from .common import LexerConf, ParserConf, _ParserArgType, _LexerArgType
@@ -71,6 +72,7 @@ class LarkOptions(Serialize):
     lexer_callbacks: Dict[str, Callable[[Token], Token]]
     use_bytes: bool
     ordered_sets: bool
+    coverage: bool
     edit_terminals: Optional[Callable[[TerminalDef], TerminalDef]]
     import_paths: 'List[Union[str, Callable[[Union[None, str, PackageResource], str], Tuple[str, str]]]]'
     source_path: Optional[str]
@@ -148,6 +150,13 @@ class LarkOptions(Serialize):
             Accept an input of type ``bytes`` instead of ``str``.
     ordered_sets
             Should Earley use ordered-sets to achieve stable output (~10% slower than regular sets. Default: True)
+    coverage
+            When ``True``, collect an explicit reduce-coverage report for each parse:
+            which rules (and which aliased alternatives) were actually reduced by the
+            parser, recorded on the real reduce path rather than inferred from the tree.
+            Each call to ``parse()`` produces a fresh, independent report, available via
+            ``Lark.coverage_report`` (or returned by ``Lark.parse_with_coverage()``).
+            Only supported with ``parser='lalr'``. (Default: ``False``)
     edit_terminals
             A callback for editing the terminals before parse.
     import_paths
@@ -189,6 +198,7 @@ class LarkOptions(Serialize):
         'g_regex_flags': 0,
         'use_bytes': False,
         'ordered_sets': True,
+        'coverage': False,
         'import_paths': [],
         'source_path': None,
         '_plugins': {},
@@ -246,7 +256,7 @@ class LarkOptions(Serialize):
 
 # Options that can be passed to the Lark parser, even when it was loaded from cache/standalone.
 # These options are only used outside of `load_grammar`.
-_LOAD_ALLOWED_OPTIONS = {'postlex', 'transformer', 'lexer_callbacks', 'use_bytes', 'debug', 'g_regex_flags', 'regex', 'propagate_positions', 'tree_class', '_plugins'}
+_LOAD_ALLOWED_OPTIONS = {'postlex', 'transformer', 'lexer_callbacks', 'use_bytes', 'debug', 'g_regex_flags', 'regex', 'propagate_positions', 'tree_class', '_plugins', 'coverage'}
 
 _VALID_PRIORITY_OPTIONS = ('auto', 'normal', 'invert', None)
 _VALID_AMBIGUITY_OPTIONS = ('auto', 'resolve', 'explicit', 'forest')
@@ -298,6 +308,9 @@ class Lark(Serialize, Generic[_Return_T]):
     def __init__(self, grammar: 'Union[Grammar, str, IO[str]]', **options) -> None:
         self.options = LarkOptions(options)
         re_module: types.ModuleType
+
+        if self.options.coverage and self.options.parser != 'lalr':
+            raise ConfigurationError("The coverage option is only supported with parser='lalr'")
 
         # Update which fields are serialized
         if self.options.cache_grammar:
@@ -538,13 +551,13 @@ class Lark(Serialize, Generic[_Return_T]):
         pickle.dump({'data': data, 'memo': m}, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     @classmethod
-    def load(cls: Type[_T], f) -> _T:
+    def load(cls: Type[_T], f, **kwargs) -> _T:
         """Loads an instance from the given file object
 
         Useful for caching and multiprocessing.
         """
         inst = cls.__new__(cls)
-        return inst._load(f)
+        return inst._load(f, **kwargs)
 
     def _deserialize_lexer_conf(self, data: Dict[str, Any], memo: Dict[int, Union[TerminalDef, Rule]], options: LarkOptions) -> LexerConf:
         lexer_conf = LexerConf.deserialize(data['lexer_conf'], memo)
@@ -736,6 +749,39 @@ class Lark(Serialize, Generic[_Return_T]):
         if on_error is not None and self.options.parser != 'lalr':
             raise NotImplementedError("The on_error option is only implemented for the LALR(1) parser.")
         return self.parser.parse(text, start=start, on_error=on_error)
+
+    @property
+    def coverage_report(self) -> Optional[CoverageReport]:
+        """The coverage report of the most recent ``parse()`` call.
+
+        Only available when Lark was initialized with ``coverage=True``
+        (which requires ``parser='lalr'``). Each call to ``parse()`` replaces
+        it with a fresh, independent report; counts are never accumulated
+        across parses. If the last parse failed, the report contains the
+        reductions completed before the failure and ``success`` is ``False``.
+
+        Returns ``None`` if coverage is disabled or no parse has run yet.
+        """
+        return getattr(self.parser, 'last_coverage_report', None)
+
+    def parse_with_coverage(self, text: LarkInput, start: Optional[str]=None, on_error: 'Optional[Callable[[UnexpectedInput], bool]]'=None) -> 'Tuple[_Return_T, CoverageReport]':
+        """Parse the given text and return ``(result, coverage_report)``.
+
+        Requires Lark to be initialized with ``coverage=True`` (LALR only).
+        The report is also available via ``Lark.coverage_report``.
+
+        If the parse fails, the exception propagates as usual, and the
+        partial report (marked ``success == False``) remains available via
+        ``Lark.coverage_report``.
+
+        See Also: ``Lark.parse()``, ``Lark.coverage_report``
+        """
+        if not self.options.coverage:
+            raise ConfigurationError("parse_with_coverage() requires Lark to be initialized with coverage=True")
+        result = self.parse(text, start=start, on_error=on_error)
+        report = self.coverage_report
+        assert report is not None
+        return result, report
 
     def scan(self, text: TextOrSlice, start: Optional[str]=None) -> Iterator['ScanMatch[_Return_T]']:
         """Scan the input text for non-overlapping matches of this grammar.

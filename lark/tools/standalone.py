@@ -60,6 +60,7 @@ EXTRACT_STANDALONE_FILES = [
     'tree.py',
     'visitors.py',
     'grammar.py',
+    'coverage.py',
     'lexer.py',
     'common.py',
     'parse_tree_builder.py',
@@ -141,7 +142,7 @@ def gen_standalone(lark_inst, output=None, out=sys.stdout, compress=False):
     output()
 
     for i, pyfile in enumerate(EXTRACT_STANDALONE_FILES):
-        with open(os.path.join(_larkdir, pyfile)) as f:
+        with open(os.path.join(_larkdir, pyfile), encoding='utf8') as f:
             code = extract_sections(f)['standalone']
             if i:   # if not this file
                 code = strip_docstrings(partial(next, iter(code.splitlines(True))))

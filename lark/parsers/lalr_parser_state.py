@@ -30,18 +30,20 @@ class ParseConf(Generic[StateT]):
         self.start = start
 
 class ParserState(Generic[StateT]):
-    __slots__ = 'parse_conf', 'lexer', 'state_stack', 'value_stack'
+    __slots__ = 'parse_conf', 'lexer', 'state_stack', 'value_stack', 'coverage'
 
     parse_conf: ParseConf[StateT]
     lexer: LexerThread
     state_stack: List[StateT]
     value_stack: list
+    coverage: Any  # Optional[CoverageReport]; duck-typed to keep standalone self-contained
 
-    def __init__(self, parse_conf: ParseConf[StateT], lexer: LexerThread, state_stack=None, value_stack=None):
+    def __init__(self, parse_conf: ParseConf[StateT], lexer: LexerThread, state_stack=None, value_stack=None, coverage=None):
         self.parse_conf = parse_conf
         self.lexer = lexer
         self.state_stack = state_stack or [self.parse_conf.start_state]
         self.value_stack = value_stack or []
+        self.coverage = coverage
 
     @property
     def position(self) -> StateT:
@@ -62,6 +64,7 @@ class ParserState(Generic[StateT]):
             copy(self.lexer),
             copy(self.state_stack),
             deepcopy(self.value_stack) if deepcopy_values else copy(self.value_stack),
+            self.coverage,
         )
 
     def feed_token(self, token: Token, is_end=False) -> Any:
@@ -70,6 +73,7 @@ class ParserState(Generic[StateT]):
         states = self.parse_conf.states
         end_state = self.parse_conf.end_state
         callbacks = self.parse_conf.callbacks
+        coverage = self.coverage
 
         while True:
             state = state_stack[-1]
@@ -104,6 +108,11 @@ class ParserState(Generic[StateT]):
                 assert _action is Shift
                 state_stack.append(new_state)
                 value_stack.append(value)
+
+                if coverage is not None:
+                    # Record only reductions that fully completed (after the
+                    # callback ran and the goto-shift succeeded).
+                    coverage.record(rule)
 
                 if is_end and state_stack[-1] == end_state:
                     return value_stack[-1]

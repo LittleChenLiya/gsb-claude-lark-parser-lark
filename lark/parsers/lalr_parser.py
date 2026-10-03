@@ -37,9 +37,9 @@ class LALR_Parser(Serialize):
     def parse_interactive(self, lexer: LexerThread, start: str):
         return self.parser.parse(lexer, start, start_interactive=True)
 
-    def parse(self, lexer, start, on_error=None):
+    def parse(self, lexer, start, on_error=None, coverage=None):
         try:
-            return self.parser.parse(lexer, start)
+            return self.parser.parse(lexer, start, coverage=coverage)
         except UnexpectedInput as e:
             if on_error is None:
                 raise
@@ -80,9 +80,9 @@ class _Parser:
         self.callbacks = callbacks
         self.debug = debug
 
-    def parse(self, lexer: LexerThread, start: str, value_stack=None, state_stack=None, start_interactive=False):
+    def parse(self, lexer: LexerThread, start: str, value_stack=None, state_stack=None, start_interactive=False, coverage=None):
         parse_conf = ParseConf(self.parse_table, self.callbacks, start)
-        parser_state = ParserState(parse_conf, lexer, state_stack, value_stack)
+        parser_state = ParserState(parse_conf, lexer, state_stack, value_stack, coverage=coverage)
         if start_interactive:
             return InteractiveParser(self, parser_state, parser_state.lexer)
         return self.parse_from_state(parser_state)

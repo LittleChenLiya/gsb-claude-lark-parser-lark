@@ -9,6 +9,7 @@ from .exceptions import (
     UnexpectedToken,
 )
 from .lark import Lark
+from .coverage import CoverageReport
 from .lexer import Token
 from .parser_frontends import ScanMatch
 from .tree import ParseTree, Tree
@@ -27,6 +28,7 @@ __all__ = (
     "UnexpectedInput",
     "UnexpectedToken",
     "Lark",
+    "CoverageReport",
     "Token",
     "ScanMatch",
     "ParseTree",

@@ -6,6 +6,7 @@ from .utils import get_regexp_width, Serialize, TextOrSlice, TextSlice, LarkInpu
 from .lexer import LexerThread, LineCounter, Token, _TextSlice_WithLineCount, BasicLexer, ContextualLexer, Lexer
 from .parsers import earley, xearley, cyk
 from .parsers.lalr_parser import LALR_Parser
+from .coverage import CoverageReport
 from .tree import Tree
 from .common import LexerConf, ParserConf, _ParserArgType, _LexerArgType
 
@@ -82,6 +83,7 @@ class ParsingFrontend(Serialize):
         self.parser_conf = parser_conf
         self.lexer_conf = lexer_conf
         self.options = options
+        self.last_coverage_report: Optional[CoverageReport] = None
 
         # Set-up parser
         if parser:  # From cache
@@ -144,6 +146,19 @@ class ParsingFrontend(Serialize):
         chosen_start = self._verify_start(start)
         kw = {} if on_error is None else {'on_error': on_error}
         stream = self._make_lexer_thread(text)
+        if self.options and self.options.coverage:
+            # Each parse gets a fresh, independent report. Only reductions that
+            # actually complete are recorded by the parser; on failure the
+            # report keeps the completed prefix and is marked as failed.
+            report = CoverageReport()
+            self.last_coverage_report = report
+            try:
+                result = self.parser.parse(stream, chosen_start, coverage=report, **kw)
+            except UnexpectedInput:
+                report.success = False
+                raise
+            report.success = True
+            return result
         return self.parser.parse(stream, chosen_start, **kw)
 
     def parse_interactive(self, text: Optional[TextOrSlice]=None, start=None):
