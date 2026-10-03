@@ -712,7 +712,7 @@ class Lark(Serialize, Generic[_Return_T]):
         """
         return self.parser.parse_interactive(text, start=start)
 
-    def parse(self, text: LarkInput, start: Optional[str]=None, on_error: 'Optional[Callable[[UnexpectedInput], bool]]'=None) -> _Return_T:
+    def parse(self, text: LarkInput, start: Optional[str]=None, on_error: 'Optional[Callable[[UnexpectedInput], bool]]'=None, coverage: bool=False) -> _Return_T:
         """Parse the given text, according to the options provided.
 
         Parameters:
@@ -723,10 +723,14 @@ class Lark(Serialize, Generic[_Return_T]):
             on_error (function, optional): if provided, will be called on UnexpectedInput error,
                 with the exception as its argument. Return true to resume parsing, or false to raise the exception.
                 LALR only. See examples/advanced/error_handling.py for an example of how to use on_error.
+            coverage (bool, optional): if True, collects coverage information about which rules
+                and alternatives were actually reduced during parsing. Returns a tuple of
+                (tree, coverage_collector). LALR only. Default: False.
 
         Returns:
             If a transformer is supplied to ``__init__``, returns whatever is the
             result of the transformation. Otherwise, returns a Tree instance.
+            If ``coverage=True``, returns a tuple of (tree, coverage_collector).
 
         :raises UnexpectedInput: On a parse error, one of these sub-exceptions will rise:
                 ``UnexpectedCharacters``, ``UnexpectedToken``, or ``UnexpectedEOF``.
@@ -735,6 +739,13 @@ class Lark(Serialize, Generic[_Return_T]):
         """
         if on_error is not None and self.options.parser != 'lalr':
             raise NotImplementedError("The on_error option is only implemented for the LALR(1) parser.")
+        if coverage and self.options.parser != 'lalr':
+            raise NotImplementedError("The coverage option is only implemented for the LALR(1) parser.")
+        if coverage:
+            from .parsers.lalr_coverage import CoverageCollector
+            collector = CoverageCollector()
+            result = self.parser.parse(text, start=start, on_error=on_error, coverage=collector)
+            return result
         return self.parser.parse(text, start=start, on_error=on_error)
 
     def scan(self, text: TextOrSlice, start: Optional[str]=None) -> Iterator['ScanMatch[_Return_T]']:

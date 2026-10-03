@@ -136,13 +136,17 @@ class ParsingFrontend(Serialize):
             return cls.from_text(self.lexer, text)
         return cls.from_custom_input(self.lexer, text)
 
-    def parse(self, text: Optional[LarkInput], start=None, on_error=None):
+    def parse(self, text: Optional[LarkInput], start=None, on_error=None, coverage=None):
         if self.lexer_conf.lexer_type in ("dynamic", "dynamic_complete"):
             if isinstance(text, TextSlice) and not text.is_complete_text():
                 raise TypeError(f"Lexer {self.lexer_conf.lexer_type} does not support text slices.")
 
         chosen_start = self._verify_start(start)
-        kw = {} if on_error is None else {'on_error': on_error}
+        kw = {}
+        if on_error is not None:
+            kw['on_error'] = on_error
+        if coverage is not None and self.parser_conf.parser_type == 'lalr':
+            kw['coverage'] = coverage
         stream = self._make_lexer_thread(text)
         return self.parser.parse(stream, chosen_start, **kw)
 

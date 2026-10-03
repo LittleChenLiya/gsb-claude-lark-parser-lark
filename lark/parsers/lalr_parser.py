@@ -2,13 +2,14 @@
 """
 # Author: Erez Shinan (2017)
 # Email : erezshin@gmail.com
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from ..lexer import Token, LexerThread
 from ..utils import Serialize
 from ..common import ParserConf, ParserCallbacks
 
 from .lalr_analysis import LALR_Analyzer, IntParseTable, ParseTableBase
 from .lalr_interactive_parser import InteractiveParser
+from .lalr_coverage import CoverageCollector
 from lark.exceptions import UnexpectedCharacters, UnexpectedInput, UnexpectedToken
 from .lalr_parser_state import ParserState, ParseConf
 
@@ -37,11 +38,16 @@ class LALR_Parser(Serialize):
     def parse_interactive(self, lexer: LexerThread, start: str):
         return self.parser.parse(lexer, start, start_interactive=True)
 
-    def parse(self, lexer, start, on_error=None):
+    def parse(self, lexer, start, on_error=None, coverage: Optional[CoverageCollector]=None):
         try:
-            return self.parser.parse(lexer, start)
+            result = self.parser.parse(lexer, start, coverage=coverage)
+            if coverage is not None:
+                return result, coverage
+            return result
         except UnexpectedInput as e:
             if on_error is None:
+                if coverage is not None:
+                    coverage.mark_failed()
                 raise
 
             while True:
@@ -50,6 +56,8 @@ class LALR_Parser(Serialize):
                     p = s.line_ctr.char_pos
 
                 if not on_error(e):
+                    if coverage is not None:
+                        coverage.mark_failed()
                     raise e
 
                 if isinstance(e, UnexpectedCharacters):
@@ -58,12 +66,17 @@ class LALR_Parser(Serialize):
                         s.line_ctr.feed(s.text.text[p:p+1])
 
                 try:
-                    return e.interactive_parser.resume_parse()
+                    result = e.interactive_parser.resume_parse()
+                    if coverage is not None:
+                        return result, coverage
+                    return result
                 except UnexpectedToken as e2:
                     if (isinstance(e, UnexpectedToken)
                         and e.token.type == e2.token.type == '$END'
                         and e.interactive_parser == e2.interactive_parser):
                         # Prevent infinite loop
+                        if coverage is not None:
+                            coverage.mark_failed()
                         raise e2
                     e = e2
                 except UnexpectedCharacters as e2:
@@ -80,9 +93,9 @@ class _Parser:
         self.callbacks = callbacks
         self.debug = debug
 
-    def parse(self, lexer: LexerThread, start: str, value_stack=None, state_stack=None, start_interactive=False):
+    def parse(self, lexer: LexerThread, start: str, value_stack=None, state_stack=None, start_interactive=False, coverage: Optional[CoverageCollector]=None):
         parse_conf = ParseConf(self.parse_table, self.callbacks, start)
-        parser_state = ParserState(parse_conf, lexer, state_stack, value_stack)
+        parser_state = ParserState(parse_conf, lexer, state_stack, value_stack, coverage=coverage)
         if start_interactive:
             return InteractiveParser(self, parser_state, parser_state.lexer)
         return self.parse_from_state(parser_state)
@@ -106,6 +119,8 @@ class _Parser:
         except UnexpectedInput as e:
             try:
                 e.interactive_parser = InteractiveParser(self, state, state.lexer)
+                if state.coverage is not None:
+                    e.coverage = state.coverage
             except NameError:
                 pass
             raise e

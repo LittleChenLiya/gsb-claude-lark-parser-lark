@@ -1,9 +1,10 @@
 from copy import deepcopy, copy
-from typing import Dict, Any, Generic, List
+from typing import Dict, Any, Generic, List, Optional
 from ..lexer import Token, LexerThread
 from ..common import ParserCallbacks
 
 from .lalr_analysis import Shift, ParseTableBase, StateT
+from .lalr_coverage import CoverageCollector
 from lark.exceptions import UnexpectedToken
 
 ###{standalone
@@ -30,18 +31,20 @@ class ParseConf(Generic[StateT]):
         self.start = start
 
 class ParserState(Generic[StateT]):
-    __slots__ = 'parse_conf', 'lexer', 'state_stack', 'value_stack'
+    __slots__ = 'parse_conf', 'lexer', 'state_stack', 'value_stack', 'coverage'
 
     parse_conf: ParseConf[StateT]
     lexer: LexerThread
     state_stack: List[StateT]
     value_stack: list
+    coverage: Optional[CoverageCollector]
 
-    def __init__(self, parse_conf: ParseConf[StateT], lexer: LexerThread, state_stack=None, value_stack=None):
+    def __init__(self, parse_conf: ParseConf[StateT], lexer: LexerThread, state_stack=None, value_stack=None, coverage: Optional[CoverageCollector]=None):
         self.parse_conf = parse_conf
         self.lexer = lexer
         self.state_stack = state_stack or [self.parse_conf.start_state]
         self.value_stack = value_stack or []
+        self.coverage = coverage
 
     @property
     def position(self) -> StateT:
@@ -76,6 +79,8 @@ class ParserState(Generic[StateT]):
             try:
                 action, arg = states[state][token.type]
             except KeyError:
+                if self.coverage is not None:
+                    self.coverage.mark_failed()
                 expected = {s for s in states[state].keys() if s.isupper()}
                 raise UnexpectedToken(token, expected, state=self, interactive_parser=None)
 
@@ -97,6 +102,13 @@ class ParserState(Generic[StateT]):
                     del value_stack[-size:]
                 else:
                     s = []
+
+                # Record the reduction at the actual reduce path.
+                # This captures the real derivation steps, including inline
+                # rules and aliases that would be hidden if we only traversed
+                # the result tree.
+                if self.coverage is not None:
+                    self.coverage.record_reduce(rule)
 
                 value = callbacks[rule](s) if callbacks else s
 
