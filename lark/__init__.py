@@ -8,6 +8,7 @@ from .exceptions import (
     UnexpectedInput,
     UnexpectedToken,
 )
+from .ambiguity import AmbiguityCycleError, AmbiguityExpander, expand_ambiguities
 from .lark import Lark
 from .lexer import Token
 from .parser_frontends import ScanMatch
@@ -18,6 +19,9 @@ from .visitors import Discard, Transformer, Transformer_NonRecursive, Visitor, v
 __version__: str = "1.3.1"
 
 __all__ = (
+    "AmbiguityCycleError",
+    "AmbiguityExpander",
+    "expand_ambiguities",
     "GrammarError",
     "LarkError",
     "LexError",

@@ -46,6 +46,21 @@ Token
 
 .. autoclass:: lark.Token
 
+AmbiguityExpander
+-----------------
+
+When the Earley parser is used with ``ambiguity='explicit'``, the result
+contains ``_ambig`` nodes (a parse forest). ``AmbiguityExpander`` lazily
+iterates over the individual parse trees, one at a time and in a fixed
+order, instead of materializing every combination at once.
+
+.. autoclass:: lark.ambiguity.AmbiguityExpander
+    :members: total, limit, truncated, count, close
+
+.. autofunction:: lark.ambiguity.expand_ambiguities
+
+.. autoclass:: lark.ambiguity.AmbiguityCycleError
+
 Transformer, Visitor & Interpreter
 ----------------------------------
 

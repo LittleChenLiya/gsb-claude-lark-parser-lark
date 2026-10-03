@@ -134,6 +134,7 @@ class LarkOptions(Serialize):
             - "resolve": The parser will automatically choose the simplest derivation
               (it chooses consistently: greedy for tokens, non-greedy for rules)
             - "explicit": The parser will return all derivations wrapped in "_ambig" tree nodes (i.e. a forest).
+              Use ``lark.ambiguity.AmbiguityExpander`` to iterate over the individual trees.
             - "forest": The parser will return the root of the shared packed parse forest.
 
     **=== Misc. / Domain Specific Options ===**
