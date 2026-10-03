@@ -1,8 +1,8 @@
-from typing import TypeVar, Tuple, List, Callable, Generic, Type, Union, Optional, Any, cast
+from typing import TypeVar, Tuple, List, Callable, Generic, Type, Union, Optional, Any, cast, FrozenSet, Iterator
 from abc import ABC
 
 from .utils import combine_alternatives
-from .tree import Tree, Branch
+from .tree import Tree, Branch, Meta
 from .exceptions import VisitError, GrammarError
 from .lexer import Token
 
@@ -619,3 +619,135 @@ class CollapseAmbiguities(Transformer):
 
     def __default_token__(self, t):
         return [t]
+
+
+def _copy_meta(meta: Optional[Meta]) -> Optional[Meta]:
+    """Return an independent copy of a tree's ``Meta`` (values preserved)."""
+    if meta is None:
+        return None
+    new = Meta()
+    new.__dict__.update(meta.__dict__)
+    return new
+
+
+def _copy_tree(tree: Branch) -> Branch:
+    """Return a fully independent copy of a tree.
+
+    Tree nodes, Token leaves and their metadata are all copied, so that
+    mutating the result never affects any other tree.
+    """
+    if isinstance(tree, Token):
+        return Token.new_borrow_pos(tree.type, tree.value, tree)
+    if isinstance(tree, Tree):
+        return Tree(
+            tree.data,
+            [_copy_tree(c) for c in tree.children],
+            meta=_copy_meta(tree._meta),
+        )
+    # Plain (immutable) leaf strings and anything else is shared as-is.
+    return tree
+
+
+class ExpandAmbiguities:
+    """Lazily expand a tree containing ``_ambig`` nodes into unambiguous trees.
+
+    :class:`CollapseAmbiguities` materializes the full Cartesian product of
+    all ambiguity alternatives up-front. ``ExpandAmbiguities`` instead yields
+    each unambiguous tree on demand (an "expansion iterator"), so that:
+
+    * the whole forest is never held in memory at once --- results are produced
+      one at a time,
+    * iteration can be stopped early (e.g. with ``max_trees`` or by closing the
+      iterator), in which case :attr:`truncated` is set,
+    * each yielded tree is an independent copy (modifying one result never
+      affects the others).
+
+    Ambiguity alternatives are expanded in their original order, so with two
+    ``_ambig`` nodes of two alternatives each, the four results are yielded in
+    the usual Cartesian order (the first position varies slowest).
+
+    Only true path cycles (a node that is its own ancestor) are rejected;
+    shared subtrees (the same node reachable from more than one place in the
+    tree) are expanded independently in every position they appear, and are not
+    mistaken for cycles.
+
+    Arguments:
+        tree: The (possibly ambiguous) tree to expand.
+        max_trees: An optional cap on the number of trees to yield. When the
+            cap is reached, iteration stops and :attr:`truncated` is set.
+
+    Attributes:
+        count: The number of trees yielded so far.
+        truncated: ``True`` if more than ``max_trees`` results exist.
+
+    Example:
+        ::
+
+            >>> from lark import Tree
+            >>> from lark.visitors import ExpandAmbiguities
+            >>> tree = Tree('start', [
+            ...     Tree('_ambig', [Tree('a', ['1']), Tree('a', ['2'])]),
+            ...     Tree('_ambig', [Tree('b', ['3']), Tree('b', ['4'])]),
+            ... ])
+            >>> expander = ExpandAmbiguities(tree, max_trees=2)
+            >>> trees = list(expander)
+            >>> len(trees)
+            2
+            >>> expander.truncated
+            True
+            >>> trees[0] == Tree('start', [Tree('a', ['1']), Tree('b', ['3'])])
+            True
+    """
+
+    def __init__(self, tree: Tree, max_trees: Optional[int] = None) -> None:
+        self.tree = tree
+        self.max_trees = max_trees
+        self.count = 0
+        self.truncated = False
+
+    def __iter__(self) -> Iterator[Tree]:
+        self.count = 0
+        self.truncated = False
+        source = self._expand(self.tree, frozenset())
+        if self.max_trees is not None and self.max_trees <= 0:
+            # Nothing to yield; peek to report whether any results exist.
+            self.truncated = next(source, None) is not None
+            return
+        for tree in source:
+            self.count += 1
+            if self.max_trees is not None and self.count >= self.max_trees:
+                # Reached the cap. Peek one extra tree so that truncated is set
+                # even if the caller closes immediately after this (cap-th) tree.
+                self.truncated = next(source, None) is not None
+                yield _copy_tree(tree)
+                return
+            yield _copy_tree(tree)
+
+    def _expand(self, node: Branch, ancestors: FrozenSet[int]) -> Iterator[Branch]:
+        if isinstance(node, Tree):
+            node_id = id(node)
+            if node_id in ancestors:
+                # True path cycle: this node is its own ancestor. Reject it.
+                return
+            path = ancestors | {node_id}
+            if node.data == '_ambig':
+                for alt in node.children:
+                    yield from self._expand(alt, path)
+            else:
+                # Cartesian product of the expansions of each child, generated
+                # lazily so the full product is never materialized.
+                def product_children(i: int) -> Iterator[List[Branch]]:
+                    if i == len(node.children):
+                        yield []
+                        return
+                    for subtree in self._expand(node.children[i], path):
+                        for rest in product_children(i + 1):
+                            yield [subtree] + rest
+
+                for combo in product_children(0):
+                    # The yielded tree shares its subtrees with the source;
+                    # __iter__ deep-copies it so each result is independent.
+                    yield Tree(node.data, combo, meta=node._meta)
+        else:
+            # Leaf token (or other immutable leaf); copied by __iter__.
+            yield node

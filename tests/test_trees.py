@@ -8,10 +8,10 @@ import copy
 import pickle
 import functools
 
-from lark.tree import Tree
+from lark.tree import Tree, Meta
 from lark.lexer import Token
 from lark.visitors import Visitor, Visitor_Recursive, Transformer, Interpreter, visit_children_decor, v_args, Discard, Transformer_InPlace, \
-    Transformer_InPlaceRecursive, Transformer_NonRecursive, merge_transformers
+    Transformer_InPlaceRecursive, Transformer_NonRecursive, merge_transformers, ExpandAmbiguities
 
 
 class TestTrees(TestCase):
@@ -522,6 +522,184 @@ class TestTrees(TestCase):
                 visit_method(self.tree1)
             self.assertIn("visit_children_decor", str(e.exception))
             self.assertIn("Interpreter", str(e.exception))
+
+
+def _two_position_fixture():
+    """Two ``_ambig`` positions, each with 2 candidates (4 combinations)."""
+    return Tree('start', [
+        Tree('_ambig', [Tree('a', ['1']), Tree('a', ['2'])]),
+        Tree('_ambig', [Tree('b', ['3']), Tree('b', ['4'])]),
+    ])
+
+
+def _four_expected():
+    return [
+        Tree('start', [Tree('a', ['1']), Tree('b', ['3'])]),
+        Tree('start', [Tree('a', ['1']), Tree('b', ['4'])]),
+        Tree('start', [Tree('a', ['2']), Tree('b', ['3'])]),
+        Tree('start', [Tree('a', ['2']), Tree('b', ['4'])]),
+    ]
+
+
+class TestExpandAmbiguities(TestCase):
+    def test_two_positions_yield_four_trees_in_fixed_order(self):
+        expander = ExpandAmbiguities(_two_position_fixture())
+        trees = list(expander)
+        self.assertEqual(expander.count, 4)
+        self.assertFalse(expander.truncated)
+        self.assertEqual(trees, _four_expected())
+
+    def test_max_trees_caps_and_marks_truncated(self):
+        expander = ExpandAmbiguities(_two_position_fixture(), max_trees=2)
+        trees = list(expander)
+        self.assertEqual(len(trees), 2)
+        self.assertEqual(expander.count, 2)
+        self.assertTrue(expander.truncated)
+        self.assertEqual(trees, _four_expected()[:2])
+
+    def test_max_trees_zero_yields_nothing_but_reports_truncated(self):
+        expander = ExpandAmbiguities(_two_position_fixture(), max_trees=0)
+        trees = list(expander)
+        self.assertEqual(trees, [])
+        self.assertTrue(expander.truncated)
+
+    def test_max_trees_above_total_is_not_truncated(self):
+        expander = ExpandAmbiguities(_two_position_fixture(), max_trees=10)
+        trees = list(expander)
+        self.assertEqual(len(trees), 4)
+        self.assertFalse(expander.truncated)
+
+    def test_exact_cap_is_not_truncated(self):
+        expander = ExpandAmbiguities(_two_position_fixture(), max_trees=4)
+        trees = list(expander)
+        self.assertEqual(len(trees), 4)
+        self.assertFalse(expander.truncated)
+
+    def test_truncated_is_set_even_if_closed_right_after_cap(self):
+        expander = ExpandAmbiguities(_two_position_fixture(), max_trees=2)
+        it = iter(expander)
+        next(it)
+        next(it)
+        it.close()  # close immediately after the cap-th tree
+        self.assertEqual(expander.count, 2)
+        self.assertTrue(expander.truncated)
+
+    def test_modifying_one_result_does_not_affect_others(self):
+        trees = list(ExpandAmbiguities(_two_position_fixture()))
+        trees[0].data = 'CHANGED'
+        trees[0].children.append(Tree('extra', ['x']))
+        trees[0].children[0].data = 'CHANGED_A'
+        trees[0].children[0].children.append('999')
+        # The other three results must be untouched.
+        self.assertEqual(trees[1], _four_expected()[1])
+        self.assertEqual(trees[2], _four_expected()[2])
+        self.assertEqual(trees[3], _four_expected()[3])
+
+    def test_each_result_has_independent_child_lists(self):
+        trees = list(ExpandAmbiguities(_two_position_fixture()))
+        self.assertIsNot(trees[0].children, trees[1].children)
+        self.assertIsNot(trees[0].children[0], trees[1].children[0])
+
+    def test_token_metadata_preserved_and_independent(self):
+        tok = Token('NUM', '42', start_pos=5, line=2, column=3,
+                    end_line=2, end_column=5, end_pos=7)
+        tree = Tree('root', [Tree('_ambig', [Tree('x', [tok]), Tree('x', [tok])])])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 2)
+        t0 = trees[0].children[0].children[0]
+        t1 = trees[1].children[0].children[0]
+        self.assertIsNot(t0, t1)
+        self.assertEqual((t0.start_pos, t0.line, t0.column), (5, 2, 3))
+        self.assertEqual((t0.end_line, t0.end_column, t0.end_pos), (2, 5, 7))
+        t0.value = '99'
+        t0.type = 'CHANGED'
+        self.assertEqual(t1.value, '42')
+        self.assertEqual(t1.type, 'NUM')
+
+    def test_tree_meta_preserved(self):
+        meta = Meta()
+        meta.line = 7
+        meta.column = 3
+        tree = Tree('root', [Tree('_ambig', [Tree('a', ['1'], meta=meta), Tree('a', ['2'])])])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 2)
+        self.assertIsNot(trees[0].children[0].meta, meta)
+        self.assertEqual(trees[0].children[0].meta.line, 7)
+        self.assertEqual(trees[0].children[0].meta.column, 3)
+
+    def test_shared_subtree_expanded_in_both_positions(self):
+        # The same Tree object is reachable from two positions. It must be
+        # expanded independently in both, not mistaken for a cycle.
+        shared = Tree('shared', [Tree('_ambig', [Tree('s', ['1']), Tree('s', ['2'])])])
+        tree = Tree('root', [shared, shared])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 4)
+        self.assertEqual(trees, [
+            Tree('root', [Tree('shared', [Tree('s', ['1'])]), Tree('shared', [Tree('s', ['1'])])]),
+            Tree('root', [Tree('shared', [Tree('s', ['1'])]), Tree('shared', [Tree('s', ['2'])])]),
+            Tree('root', [Tree('shared', [Tree('s', ['2'])]), Tree('shared', [Tree('s', ['1'])])]),
+            Tree('root', [Tree('shared', [Tree('s', ['2'])]), Tree('shared', [Tree('s', ['2'])])]),
+        ])
+
+    def test_shared_token_expanded_in_both_positions(self):
+        tok = Token('T', 'x')
+        tree = Tree('root', [Tree('_ambig', [Tree('a', [tok]), Tree('a', [tok])])])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 2)
+        self.assertIsNot(trees[0].children[0].children[0], trees[1].children[0].children[0])
+
+    def test_true_self_loop_is_rejected(self):
+        loop = Tree('loop', [])
+        loop.children.append(loop)  # self-cycle
+        tree = Tree('root', [Tree('_ambig', [Tree('ok', ['1']), loop])])
+        trees = list(ExpandAmbiguities(tree))  # must not hang
+        self.assertEqual(len(trees), 1)
+        self.assertEqual(trees[0], Tree('root', [Tree('ok', ['1'])]))
+
+    def test_true_mutual_cycle_is_rejected(self):
+        a = Tree('A', [])
+        b = Tree('B', [a])
+        a.children.append(b)  # A -> B -> A
+        tree = Tree('root', [Tree('_ambig', [Tree('ok', ['x']), a])])
+        trees = list(ExpandAmbiguities(tree))  # must not hang
+        self.assertEqual(len(trees), 1)
+        self.assertEqual(trees[0], Tree('root', [Tree('ok', ['x'])]))
+
+    def test_nested_ambig_nodes(self):
+        # An _ambig alternative that itself contains an _ambig node.
+        inner = Tree('_ambig', [Tree('i', ['1']), Tree('i', ['2'])])
+        tree = Tree('root', [Tree('_ambig', [inner, Tree('o', ['3'])])])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 3)
+        self.assertEqual(trees, [
+            Tree('root', [Tree('i', ['1'])]),
+            Tree('root', [Tree('i', ['2'])]),
+            Tree('root', [Tree('o', ['3'])]),
+        ])
+
+    def test_tree_without_ambig_yields_itself(self):
+        tree = Tree('root', [Tree('a', ['1']), Token('T', 'x')])
+        trees = list(ExpandAmbiguities(tree))
+        self.assertEqual(len(trees), 1)
+        self.assertEqual(trees[0], tree)
+
+    def test_early_close_stops_expansion(self):
+        tree = _two_position_fixture()
+        expander = ExpandAmbiguities(tree)
+        it = iter(expander)
+        next(it)
+        it.close()  # close before the cap; must stop, no background expansion
+        self.assertEqual(expander.count, 1)
+        self.assertFalse(expander.truncated)
+
+    def test_first_result_is_not_the_only_representative(self):
+        # The first tree is just one combination; all must be produced.
+        trees = list(ExpandAmbiguities(_two_position_fixture()))
+        self.assertEqual(len(trees), 4)
+        self.assertNotEqual(trees[0], trees[1])
+        self.assertNotEqual(trees[0], trees[2])
+        self.assertNotEqual(trees[0], trees[3])
+
 
 if __name__ == '__main__':
     unittest.main()

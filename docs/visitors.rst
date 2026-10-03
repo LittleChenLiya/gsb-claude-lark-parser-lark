@@ -109,6 +109,24 @@ Useful Utilities
 .. autofunction:: lark.visitors.visit_children_decor
 .. autofunction:: lark.visitors.merge_transformers
 
+Expanding Ambiguities
+---------------------
+
+When parsing with ``ambiguity='explicit'``, Lark returns a single tree whose
+``_ambig`` nodes mark where the grammar was ambiguous. :class:`CollapseAmbiguities`
+materializes the full Cartesian product of all alternatives up-front, which can
+be prohibitively large for highly ambiguous forests.
+
+:class:`ExpandAmbiguities` is a lazy expansion iterator: it yields each
+unambiguous tree one at a time, never holding the whole product in memory. It
+supports a ``max_trees`` cap (with a ``truncated`` status), early close, and
+returns fully independent copies of each result. Only true path cycles are
+rejected; shared subtrees are expanded independently in every position they
+appear.
+
+.. autoclass:: lark.visitors.ExpandAmbiguities
+    :members:
+
 Discard
 -------
 

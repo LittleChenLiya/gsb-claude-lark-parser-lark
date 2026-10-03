@@ -131,6 +131,53 @@ This prints out:
 
 While convenient, this should be used carefully, as highly ambiguous trees will soon create an exponential explosion of such unambiguous derivations.
 
+## Expanding ambiguities lazily
+
+`CollapseAmbiguities` builds the whole Cartesian product up-front, which can be
+prohibitively large. `ExpandAmbiguities` is a lazy iterator: it yields each
+unambiguous tree one at a time, so you can inspect results without holding the
+entire forest in memory. It also accepts a `max_trees` cap and reports whether
+more results exist via the `truncated` attribute.
+
+```python
+from lark import Lark
+from lark.visitors import ExpandAmbiguities
+
+grammar = """
+    !start: x y
+    !x: "a" "b" | "ab"
+    !y: "c" "d" | "cd"
+"""
+parser = Lark(grammar, ambiguity='explicit')
+t = parser.parse('abcd')
+
+expander = ExpandAmbiguities(t, max_trees=2)
+for i, tree in enumerate(expander):
+    print(f"result {i}:")
+    print(tree.pretty())
+print("truncated:", expander.truncated)
+```
+
+This prints out:
+
+    result 0:
+    start
+      a
+        b
+      c
+        d
+
+    result 1:
+    start
+      a     b
+      c     d
+
+    truncated: True
+
+Each yielded tree is an independent copy, so modifying one result never affects
+the others. Only true path cycles (a node that is its own ancestor) are
+rejected; shared subtrees are expanded independently in every position they
+appear.
 
 ## Keeping track of parents when visiting
 
