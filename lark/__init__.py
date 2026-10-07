@@ -8,6 +8,7 @@ from .exceptions import (
     UnexpectedInput,
     UnexpectedToken,
 )
+from .completion import CompletionAnalyzer, CompletionCandidate, CompletionResult, RulePosition
 from .lark import Lark
 from .lexer import Token
 from .parser_frontends import ScanMatch
@@ -18,6 +19,10 @@ from .visitors import Discard, Transformer, Transformer_NonRecursive, Visitor, v
 __version__: str = "1.3.1"
 
 __all__ = (
+    "CompletionAnalyzer",
+    "CompletionCandidate",
+    "CompletionResult",
+    "RulePosition",
     "GrammarError",
     "LarkError",
     "LexError",
