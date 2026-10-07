@@ -77,6 +77,26 @@ InteractiveParser
 .. autoclass:: lark.parsers.lalr_interactive_parser.ImmutableInteractiveParser
     :members: choices, feed_token, copy, pretty, resume_parse, exhaust_lexer, accepts, as_mutable
 
+CompletionAnalyzer
+------------------
+
+A completion-assistance tool for editor-like integrations. Given a possibly
+incomplete input prefix, it advances a LALR ``InteractiveParser`` over the
+prefix and reports which terminals may follow at the current position, the
+literal text when it can be statically determined, and the rule positions
+that caused each candidate. It never modifies or auto-completes the input.
+
+.. autoclass:: lark.completion.CompletionAnalyzer
+    :members: analyze, analyze_interactive
+
+.. autoclass:: lark.completion.CompletionResult
+    :members: token_types, literals, ok, get_candidate
+
+.. autoclass:: lark.completion.CompletionCandidate
+
+.. autoclass:: lark.completion.RulePosition
+    :members: rule_name, expected_symbol
+
 
 ast_utils
 ---------

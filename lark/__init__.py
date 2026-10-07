@@ -9,6 +9,7 @@ from .exceptions import (
     UnexpectedToken,
 )
 from .lark import Lark
+from .completion import CompletionAnalyzer, CompletionCandidate, CompletionResult, RulePosition
 from .lexer import Token
 from .parser_frontends import ScanMatch
 from .tree import ParseTree, Tree
@@ -27,6 +28,10 @@ __all__ = (
     "UnexpectedInput",
     "UnexpectedToken",
     "Lark",
+    "CompletionAnalyzer",
+    "CompletionCandidate",
+    "CompletionResult",
+    "RulePosition",
     "Token",
     "ScanMatch",
     "ParseTree",
